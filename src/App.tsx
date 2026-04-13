@@ -128,13 +128,28 @@ export default function App() {
     <main className="min-h-screen bg-gray-950 text-white px-4 py-12">
       <div className="max-w-2xl mx-auto flex flex-col gap-8">
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-green-400">Music App</h1>
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <svg className="w-7 h-7 text-green-400" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z" />
+            </svg>
+            <h1 className="text-4xl font-bold text-green-400">Music App</h1>
+          </div>
           <p className="text-gray-400 mt-1">Search for any artist on Spotify</p>
         </div>
 
         <div className="relative">
+          <svg
+            className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path strokeLinecap="round" d="M21 21l-4.35-4.35" />
+          </svg>
           <input
-            className="w-full bg-gray-800 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-green-400"
+            className="w-full bg-gray-800 rounded-lg pl-10 pr-4 py-3 outline-none focus:ring-2 focus:ring-green-400"
             placeholder="Search for an artist..."
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -183,8 +198,19 @@ export default function App() {
           )}
         </div>
 
-        {error && <p className="text-red-400">Error: {error}</p>}
-        {loading && <p className="text-gray-400 text-center">Loading...</p>}
+        {error && (
+          <div className="flex items-center gap-2 bg-red-950/50 border border-red-800 text-red-400 rounded-lg px-4 py-3 text-sm">
+            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            {error}
+          </div>
+        )}
+        {loading && (
+          <div className="flex justify-center py-4">
+            <div className="w-8 h-8 border-4 border-gray-700 border-t-green-400 rounded-full animate-spin" />
+          </div>
+        )}
 
         {artist && !loading && (
           <div className="flex flex-col gap-6">
@@ -198,6 +224,11 @@ export default function App() {
               )}
               <div>
                 <h2 className="text-2xl font-bold">{artist.name}</h2>
+                {artist.followers?.total != null && (
+                  <p className="text-sm text-gray-400 mt-1">
+                    {artist.followers.total.toLocaleString()} followers
+                  </p>
+                )}
                 {artist.genres?.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
                     {artist.genres.map((g: string) => (
@@ -241,17 +272,25 @@ export default function App() {
                         · {album.release_date.slice(0, 4)}
                       </p>
                     </div>
-                    <span className="text-gray-400 text-sm">
-                      {selectedAlbum?.id === album.id ? "▲" : "▼"}
-                    </span>
+                    <svg
+                      className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
+                        selectedAlbum?.id === album.id ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
                   </button>
 
                   {selectedAlbum?.id === album.id && (
                     <div className="mt-2 ml-4 flex flex-col gap-1">
                       {loadingTracks && (
-                        <p className="text-gray-400 text-sm">
-                          Loading tracks...
-                        </p>
+                        <div className="flex justify-center py-2">
+                          <div className="w-5 h-5 border-2 border-gray-700 border-t-green-400 rounded-full animate-spin" />
+                        </div>
                       )}
                       {!loadingTracks &&
                         tracks.map((track, i) => (

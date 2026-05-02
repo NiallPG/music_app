@@ -1,29 +1,72 @@
 import { useEffect, useState, useRef } from "react";
 
-const SERVER_URL = "https://k7sk7w-3001.csb.app";
+const SERVER_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
-let cachedToken: string | null = null;
-let tokenExpiry: number = 0;
+type SpotifyImage = {
+  url: string;
+};
 
-async function getToken() {
-  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
-  const res = await fetch(`${SERVER_URL}/api/token`);
-  const data = await res.json();
-  cachedToken = data.access_token;
-  tokenExpiry = Date.now() + 50 * 60 * 1000;
-  return cachedToken as string;
-}
+type Artist = {
+  id: string;
+  name: string;
+  followers?: { total?: number };
+  genres?: string[];
+  images?: SpotifyImage[];
+};
+
+type Album = {
+  id: string;
+  name: string;
+  album_type: string;
+  release_date: string;
+  images?: SpotifyImage[];
+};
+
+type Track = {
+  id?: string;
+  name: string;
+  duration_ms: number;
+};
+
+type ListeningPlanItem = {
+  id: string;
+  name: string;
+  album_type: string;
+  release_date: string;
+  image: string | null;
+  score: number;
+  reasons: string[];
+};
+
+type ListeningPlan = {
+  name: string;
+  description: string;
+  source: string;
+  rules: { key: string; label: string; points: number }[];
+  items: ListeningPlanItem[];
+};
+
+type ArtistSearchResult = {
+  items: Artist[];
+  mode?: "demo" | "spotify";
+  warning?: string;
+};
 
 async function searchArtists(query: string) {
-  const token = await getToken();
   const res = await fetch(
-    `https://api.spotify.com/v1/search?q=${encodeURIComponent(
-      query
-    )}&type=artist&limit=6`,
-    { headers: { Authorization: `Bearer ${token}` } }
+    `${SERVER_URL}/api/search/artists?q=${encodeURIComponent(query)}`
   );
   const data = await res.json();
-  return (data.artists?.items ?? []).filter((a: any) => a);
+
+  if (!res.ok) {
+    throw new Error(data.error ?? "Artist search failed.");
+  }
+
+  return {
+    items: (data.items ?? []).filter(Boolean) as Artist[],
+    mode: data.mode,
+    warning: data.warning,
+  } as ArtistSearchResult;
 }
 
 async function getArtistAndAlbums(id: string) {
@@ -33,13 +76,24 @@ async function getArtistAndAlbums(id: string) {
   ]);
   const artist = await artistRes.json();
   const albumsData = await albumsRes.json();
-  return { artist, albums: albumsData.items ?? [] };
+  return { artist: artist as Artist, albums: (albumsData.items ?? []) as Album[] };
 }
 
 async function getAlbumTracks(id: string) {
   const res = await fetch(`${SERVER_URL}/api/album/${id}/tracks`);
   const data = await res.json();
-  return data.items ?? [];
+  return (data.items ?? []) as Track[];
+}
+
+async function getListeningPlan(id: string) {
+  const res = await fetch(`${SERVER_URL}/api/artist/${id}/listening-plan`);
+  const data = await res.json();
+
+  if (!res.ok) {
+    throw new Error(data.error ?? "Unable to load the Lua listening plan.");
+  }
+
+  return data as ListeningPlan;
 }
 
 function formatDuration(ms: number) {
@@ -50,23 +104,29 @@ function formatDuration(ms: number) {
 
 export default function App() {
   const [query, setQuery] = useState("");
-  const [dropdown, setDropdown] = useState<any[]>([]);
-  const [artist, setArtist] = useState<any>(null);
-  const [albums, setAlbums] = useState<any[]>([]);
-  const [selectedAlbum, setSelectedAlbum] = useState<any>(null);
-  const [tracks, setTracks] = useState<any[]>([]);
+  const [dropdown, setDropdown] = useState<Artist[]>([]);
+  const [artist, setArtist] = useState<Artist | null>(null);
+  const [albums, setAlbums] = useState<Album[]>([]);
+  const [selectedAlbum, setSelectedAlbum] = useState<Album | null>(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
+  const [listeningPlan, setListeningPlan] = useState<ListeningPlan | null>(null);
   const [loadingTracks, setLoadingTracks] = useState(false);
+  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [searchingArtists, setSearchingArtists] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchWarning, setSearchWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasSearchedRef = useRef(false);
   const mouseInDropdown = useRef(false);
+  const artistGenres = artist?.genres ?? [];
 
   useEffect(() => {
     if (!query.trim()) {
       setDropdown([]);
       setShowDropdown(false);
+      setSearchWarning(null);
       hasSearchedRef.current = false;
       return;
     }
@@ -76,12 +136,17 @@ export default function App() {
 
     debounceRef.current = setTimeout(async () => {
       hasSearchedRef.current = true;
+      setSearchingArtists(true);
+      setError(null);
       try {
         const results = await searchArtists(query);
-        setDropdown(results);
+        setDropdown(results.items);
+        setSearchWarning(results.warning ?? null);
         setShowDropdown(true);
-      } catch (e: any) {
-        setError(e.message);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Artist search failed.");
+      } finally {
+        setSearchingArtists(false);
       }
     }, delay);
 
@@ -97,17 +162,24 @@ export default function App() {
     setError(null);
     setSelectedAlbum(null);
     setTracks([]);
+    setListeningPlan(null);
+    setLoadingPlan(true);
     try {
-      const { artist, albums } = await getArtistAndAlbums(id);
+      const [{ artist, albums }, plan] = await Promise.all([
+        getArtistAndAlbums(id),
+        getListeningPlan(id),
+      ]);
       setArtist(artist);
       setAlbums(albums);
-    } catch (e: any) {
-      setError(e.message);
+      setListeningPlan(plan);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Artist lookup failed.");
     }
+    setLoadingPlan(false);
     setLoading(false);
   }
 
-  async function handleSelectAlbum(album: any) {
+  async function handleSelectAlbum(album: Album) {
     if (selectedAlbum?.id === album.id) {
       setSelectedAlbum(null);
       setTracks([]);
@@ -118,8 +190,8 @@ export default function App() {
     try {
       const t = await getAlbumTracks(album.id);
       setTracks(t);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Track lookup failed.");
     }
     setLoadingTracks(false);
   }
@@ -159,7 +231,7 @@ export default function App() {
             }}
           />
 
-          {showDropdown && dropdown.length > 0 && (
+          {showDropdown && (dropdown.length > 0 || searchingArtists || query.trim()) && (
             <div
               className="absolute z-10 w-full mt-1 bg-gray-800 rounded-xl shadow-lg overflow-hidden"
               onMouseEnter={() => {
@@ -169,7 +241,26 @@ export default function App() {
                 mouseInDropdown.current = false;
               }}
             >
-              {dropdown.map((a) => (
+              {searchingArtists && (
+                <div className="flex items-center gap-3 px-4 py-3 text-sm text-gray-400">
+                  <div className="h-4 w-4 rounded-full border-2 border-gray-700 border-t-green-400 animate-spin" />
+                  Searching artists...
+                </div>
+              )}
+
+              {!searchingArtists && searchWarning && (
+                <div className="border-b border-gray-700 px-4 py-2 text-xs text-amber-300">
+                  Demo mode: Spotify credentials need to be replaced for live data.
+                </div>
+              )}
+
+              {!searchingArtists && dropdown.length === 0 && query.trim() && (
+                <div className="px-4 py-3 text-sm text-gray-400">
+                  No matching artists yet.
+                </div>
+              )}
+
+              {!searchingArtists && dropdown.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => handleSelectArtist(a.id)}
@@ -229,9 +320,9 @@ export default function App() {
                     {artist.followers.total.toLocaleString()} followers
                   </p>
                 )}
-                {artist.genres?.length > 0 && (
+                {artistGenres.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-2">
-                    {artist.genres.map((g: string) => (
+                    {artistGenres.map((g) => (
                       <span
                         key={g}
                         className="bg-green-400 text-black text-xs font-semibold px-2 py-1 rounded-full"
@@ -243,6 +334,61 @@ export default function App() {
                 )}
               </div>
             </div>
+
+            <section className="bg-gray-800 rounded-2xl p-6 flex flex-col gap-4">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-green-400">
+                  Lua workflow
+                </p>
+                <h3 className="text-lg font-semibold">
+                  {listeningPlan?.name ?? "Loading listening plan"}
+                </h3>
+                <p className="text-sm text-gray-400">
+                  {listeningPlan?.description ??
+                    "Scoring albums with workflows/listening_rules.lua"}
+                </p>
+              </div>
+
+              {loadingPlan && (
+                <div className="flex items-center gap-3 text-sm text-gray-400">
+                  <div className="w-4 h-4 border-2 border-gray-700 border-t-green-400 rounded-full animate-spin" />
+                  Building recommendations from Lua rules...
+                </div>
+              )}
+
+              {listeningPlan && (
+                <div className="grid gap-3">
+                  {listeningPlan.items.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-4 rounded-xl bg-gray-900/70 p-3"
+                    >
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-400 text-sm font-bold text-black">
+                        {index + 1}
+                      </span>
+                      {item.image && (
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="h-12 w-12 rounded object-cover"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-medium">{item.name}</p>
+                        <p className="text-sm text-gray-400">
+                          {item.album_type.charAt(0).toUpperCase() +
+                            item.album_type.slice(1)}{" "}
+                          · {item.release_date.slice(0, 4)} · Score {item.score}
+                        </p>
+                        <p className="truncate text-xs text-gray-500">
+                          {item.reasons.join(" + ")}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
             <div className="bg-gray-800 rounded-2xl p-6 flex flex-col gap-3">
               <h3 className="text-lg font-semibold">Albums</h3>

@@ -9,7 +9,12 @@
     "start": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "workflow": "sh scripts/workflow.sh",
+    "workflow:validate": "sh scripts/workflow.sh validate",
+    "workflow:ui": "sh scripts/workflow.sh ui",
+    "workflow:api": "sh scripts/workflow.sh api",
+    "workflow:dev": "sh scripts/workflow.sh dev"
   },
   "dependencies": {
     "concurrently": "^9.0.0",

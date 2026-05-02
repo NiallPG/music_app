@@ -1,8 +1,17 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { exec } from "child_process";
 import { readFileSync } from "fs";
+import {
+  getDemoAlbums,
+  getDemoArtist,
+  getDemoTracks,
+  searchDemoArtists,
+} from "./scripts/demoCatalog.mjs";
+import { loadListeningRules, scoreAlbums } from "./scripts/luaRules.mjs";
 
 dotenv.config();
 
@@ -10,7 +19,26 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const API_VERSION = "music-app-api-2026-05-02-token-debug";
+const DEMO_AUTH_ERROR =
+  "Spotify credentials are not valid, so demo catalog results are being used.";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const listeningRulesPath = path.join(
+  __dirname,
+  "workflows",
+  "listening_rules.lua"
+);
+
+// ─── Lua helpers ───────────────────────────────────────────────────────────────
+
+function getListeningRules() {
+  return loadListeningRules(listeningRulesPath);
+}
+
 // ─── Lua → JSON config pipeline ───────────────────────────────────────────────
+
 function generateConfig() {
   return new Promise((resolve, reject) => {
     exec("bash generate_config.sh", (err, stdout, stderr) => {
@@ -25,48 +53,97 @@ function generateConfig() {
   });
 }
 
-// ─── Spotify token (server-side only) ─────────────────────────────────────────
+// ─── Spotify token ─────────────────────────────────────────────────────────────
+
 let cachedToken = null;
 let tokenExpiry = 0;
 
-async function fetchToken() {
-  if (cachedToken && Date.now() < tokenExpiry) return cachedToken;
+async function fetchToken(forceRefresh = false) {
+  if (!forceRefresh && cachedToken && Date.now() < tokenExpiry) {
+    return cachedToken;
+  }
 
-  const clientId = process.env.SPOTIFY_CLIENT_ID;
-  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  const clientId = process.env.SPOTIFY_CLIENT_ID?.trim();
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET?.trim();
+
   if (!clientId || !clientSecret) {
     throw new Error(
-      "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env"
+      "Missing SPOTIFY_CLIENT_ID or SPOTIFY_CLIENT_SECRET in .env."
     );
   }
 
-  const res = await fetch("https://accounts.spotify.com/api/token", {
+  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString(
+    "base64"
+  );
+  const tokenRes = await fetch("https://accounts.spotify.com/api/token", {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: "Basic " + btoa(`${clientId}:${clientSecret}`),
+      Authorization: `Basic ${credentials}`,
     },
-    body: "grant_type=client_credentials",
+    body: new URLSearchParams({ grant_type: "client_credentials" }),
   });
-  const data = await res.json();
-  if (!data.access_token) {
+  const data = await tokenRes.json();
+
+  if (!tokenRes.ok || !data.access_token) {
     console.error("[token] failed:", data);
-    throw new Error("Failed to fetch Spotify token");
+    if (data.error === "invalid_client") {
+      throw new Error(
+        "Spotify rejected the client credentials. Update SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env with a valid pair from the same Spotify Developer app, then restart the server."
+      );
+    }
+    throw new Error(
+      data.error_description ?? data.error ?? "Spotify token request failed."
+    );
   }
+
   cachedToken = data.access_token;
-  tokenExpiry = Date.now() + 50 * 60 * 1000;
+  tokenExpiry =
+    Date.now() + Math.max((data.expires_in ?? 3600) - 60, 60) * 1000;
   console.log("[token] fetched new token");
   return cachedToken;
 }
 
+// ─── Generic Spotify fetch with 401 retry ──────────────────────────────────────
+
+async function fetchSpotifyJson(
+  url,
+  retryAfterRefresh = true,
+  label = "Spotify"
+) {
+  const token = await fetchToken();
+  const spotifyRes = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = await spotifyRes.json();
+
+  if (spotifyRes.status === 401 && retryAfterRefresh) {
+    await fetchToken(true);
+    return fetchSpotifyJson(url, false, label);
+  }
+
+  if (!spotifyRes.ok) {
+    throw new Error(
+      `${label} failed: ${data.error?.message ?? "Spotify request failed."}`
+    );
+  }
+
+  return data;
+}
+
+function spotifyUrl(pathname, params = {}) {
+  const url = new URL(`https://api.spotify.com/v1${pathname}`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
 // ─── Helper: score a playlist by how "editorial" it looks ─────────────────────
-// Spotify's owner:spotify filter doesn't work with client credentials, so we
-// rank by name patterns instead. "This Is X" and "X Radio" are always Spotify
-// editorial. Higher score = sorted first.
+
 function editorialScore(playlist, artistName) {
   const name = (playlist?.name ?? "").toLowerCase();
   const artist = artistName.toLowerCase();
-
   if (name === `this is ${artist}`) return 3;
   if (name.startsWith("this is ")) return 2;
   if (name === `${artist} radio`) return 2;
@@ -97,7 +174,62 @@ app.post("/api/config/reload", async (_req, res) => {
   }
 });
 
+// ─── Health & debug endpoints ──────────────────────────────────────────────────
+
+app.get("/api/token", async (req, res) => {
+  try {
+    const token = await fetchToken();
+    res.json({ access_token: token });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unable to fetch token.",
+    });
+  }
+});
+
+app.get("/api/health", async (req, res) => {
+  res.json({
+    ok: true,
+    version: API_VERSION,
+    spotifyCredentials: {
+      hasClientId: Boolean(process.env.SPOTIFY_CLIENT_ID),
+      hasClientSecret: Boolean(process.env.SPOTIFY_CLIENT_SECRET),
+    },
+  });
+});
+
+app.get("/api/debug/spotify", async (req, res) => {
+  try {
+    const token = await fetchToken(true);
+    const data = await fetchSpotifyJson(
+      spotifyUrl("/search", { q: "Ca", type: "artist", limit: 1 }),
+      false,
+      "Debug search"
+    );
+    res.json({
+      ok: true,
+      version: API_VERSION,
+      tokenPreview: `${token.slice(0, 8)}...${token.slice(-6)}`,
+      firstArtist: data.artists?.items?.[0]?.name ?? null,
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      version: API_VERSION,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Spotify debug request failed.",
+    });
+  }
+});
+
 // ─── Search ───────────────────────────────────────────────────────────────────
+
+// Genre cache — seeded for free by /api/search, so /api/artist/:id rarely
+// needs to make extra Spotify calls just to get genres.
+const genreCache = new Map(); // artistId -> { genres, expiry }
+const GENRE_CACHE_TTL = 30 * 60 * 1000; // 30 min
 
 app.get("/api/search", async (req, res) => {
   try {
@@ -105,7 +237,6 @@ app.get("/api/search", async (req, res) => {
     if (!q) return res.status(400).json({ error: "q param required" });
 
     const token = await fetchToken();
-
     const searchRes = await fetch(
       `https://api.spotify.com/v1/search?q=${encodeURIComponent(
         q
@@ -115,9 +246,7 @@ app.get("/api/search", async (req, res) => {
     const searchData = await searchRes.json();
     const items = (searchData.artists?.items ?? []).filter(Boolean);
 
-    // Seed the genre cache for free — search results include genres and cost
-    // no extra API calls. This means /api/artist/:id won't need any fallback
-    // requests for artists the user already saw in the dropdown.
+    // Seed the genre cache for free — search results include genres
     for (const artist of items) {
       if (artist.id && artist.genres?.length) {
         genreCache.set(artist.id, {
@@ -129,26 +258,25 @@ app.get("/api/search", async (req, res) => {
 
     res.json({ artists: items });
   } catch (e) {
-    console.error("[search] error:", e);
-    res.status(500).json({ error: "Search failed" });
+    // Fall back to demo catalog if Spotify is unavailable
+    console.error("[search] error, falling back to demo:", e);
+    const q = req.query.q ?? "";
+    res.json({
+      artists: searchDemoArtists(String(q)),
+      mode: "demo",
+      warning: `${DEMO_AUTH_ERROR} ${e.message}`,
+    });
   }
 });
 
 // ─── Artist ────────────────────────────────────────────────────────────────────
 
-// Genre cache — seeded for free by /api/search, so /api/artist/:id rarely
-// needs to make extra Spotify calls just to get genres.
-const genreCache = new Map(); // artistId -> { genres, expiry }
-const GENRE_CACHE_TTL = 30 * 60 * 1000; // 30 min
-
 async function resolveGenres(id, name, existingGenres, headers) {
-  // Already have genres on the artist object — done, no extra calls
   if (existingGenres?.length) {
     console.log(`[artist] ${name} | genres: ${existingGenres.join(", ")}`);
     return existingGenres;
   }
 
-  // Check cache — likely seeded for free from the search dropdown
   const cached = genreCache.get(id);
   if (cached && Date.now() < cached.expiry) {
     const label = cached.genres.length ? cached.genres.join(", ") : "(none)";
@@ -156,9 +284,6 @@ async function resolveGenres(id, name, existingGenres, headers) {
     return cached.genres;
   }
 
-  // Only make one extra call (related-artists) as a last resort.
-  // We skip the search fallback — it's redundant since search already seeds
-  // the cache, and firing extra requests contributes to rate limiting.
   try {
     const relRes = await fetch(
       `https://api.spotify.com/v1/artists/${id}/related-artists`,
@@ -196,6 +321,13 @@ async function resolveGenres(id, name, existingGenres, headers) {
 }
 
 app.get("/api/artist/:id", async (req, res) => {
+  // Check demo catalog first
+  const demoArtist = getDemoArtist(req.params.id);
+  if (demoArtist) {
+    res.json({ ...demoArtist, mode: "demo" });
+    return;
+  }
+
   try {
     const token = await fetchToken();
     const headers = { Authorization: `Bearer ${token}` };
@@ -256,14 +388,9 @@ app.get("/api/artist/:id/top-tracks", async (req, res) => {
 
 // ─── Albums ────────────────────────────────────────────────────────────────────
 
-// Cache always stores the full album+single catalog per artist.
-// All filter variations (albumType, minYear, maxResults) are applied in-memory,
-// so changing filters never triggers a new Spotify fetch.
 const albumCache = new Map(); // key = artistId, value = { items, expiry }
 const ALBUM_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-// Fetch pages until we have at least `needed` items of each type, or exhaust all pages.
-// This avoids crawling an artist's entire catalog when we only need 10 results.
 async function fetchAllAlbums(artistId, token, needed = 10) {
   const cached = albumCache.get(artistId);
   if (cached && Date.now() < cached.expiry) {
@@ -338,6 +465,13 @@ async function fetchAllAlbums(artistId, token, needed = 10) {
 }
 
 app.get("/api/artist/:id/albums", async (req, res) => {
+  // Check demo catalog first
+  const demoAlbums = getDemoAlbums(req.params.id);
+  if (demoAlbums.length > 0) {
+    res.json({ items: demoAlbums, mode: "demo" });
+    return;
+  }
+
   try {
     const token = await fetchToken();
 
@@ -356,8 +490,6 @@ app.get("/api/artist/:id/albums", async (req, res) => {
       maxResults
     );
 
-    // Always pull from the single combined cache entry.
-    // Pass maxResults so pagination stops early once we have enough of each type.
     const { items: allItems, rateLimited } = await fetchAllAlbums(
       req.params.id,
       token,
@@ -373,7 +505,7 @@ app.get("/api/artist/:id/albums", async (req, res) => {
     const typeFilter = (item) => {
       if (albumType === "album") return item.album_type === "album";
       if (albumType === "single") return item.album_type === "single";
-      return true; // "both"
+      return true;
     };
 
     if (albumType === "both") {
@@ -403,6 +535,46 @@ app.get("/api/artist/:id/albums", async (req, res) => {
   }
 });
 
+// ─── Listening Plan (Lua scoring) ──────────────────────────────────────────────
+
+app.get("/api/artist/:id/listening-plan", async (req, res) => {
+  try {
+    const demoAlbums = getDemoAlbums(req.params.id);
+    const data =
+      demoAlbums.length > 0
+        ? { items: demoAlbums }
+        : await fetchSpotifyJson(
+            spotifyUrl(`/artists/${req.params.id}/albums`, {
+              include_groups: "album,single",
+              limit: 8,
+            }),
+            true,
+            "Lua listening plan albums"
+          );
+    const rules = getListeningRules();
+
+    res.json({
+      name: rules.plan_name,
+      description: rules.description,
+      source: "workflows/listening_rules.lua",
+      mode: demoAlbums.length > 0 ? "demo" : "spotify",
+      rules: rules.rules.map(({ key, label, points }) => ({
+        key,
+        label,
+        points,
+      })),
+      items: scoreAlbums(data.items ?? [], rules),
+    });
+  } catch (error) {
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to create listening plan.",
+    });
+  }
+});
+
 // ─── Artist Playlists (via search) ────────────────────────────────────────────
 
 app.get("/api/artist/:id/playlists", async (req, res) => {
@@ -412,8 +584,6 @@ app.get("/api/artist/:id/playlists", async (req, res) => {
     if (!name) return res.status(400).json({ error: "name param required" });
     const maxResults = parseInt(req.query.maxResults) || 10;
 
-    // Search for "This Is <artist>" first — Spotify's editorial format —
-    // then do a general search and merge, deduped by id.
     const [thisIsRes, generalRes] = await Promise.all([
       fetch(
         `https://api.spotify.com/v1/search?q=${encodeURIComponent(
@@ -450,7 +620,6 @@ app.get("/api/artist/:id/playlists", async (req, res) => {
       }
     }
 
-    // Sort by editorial score (name-pattern based), then track count
     const sorted = items
       .sort((a, b) => {
         const scoreDiff = editorialScore(b, name) - editorialScore(a, name);
@@ -479,6 +648,13 @@ app.get("/api/artist/:id/playlists", async (req, res) => {
 // ─── Tracks ────────────────────────────────────────────────────────────────────
 
 app.get("/api/album/:id/tracks", async (req, res) => {
+  // Check demo catalog first
+  const demoTracks = getDemoTracks(req.params.id);
+  if (demoTracks.length > 0) {
+    res.json({ items: demoTracks, mode: "demo" });
+    return;
+  }
+
   const MAX_RETRIES = 3;
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -508,5 +684,7 @@ app.get("/api/album/:id/tracks", async (req, res) => {
 
 // ─── Start ─────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.SERVER_PORT;
-app.listen(PORT, () => console.log(`Token server running on port ${PORT}`));
+const PORT = process.env.SERVER_PORT ?? 3001;
+app.listen(PORT, () =>
+  console.log(`Token server running on port ${PORT} (${API_VERSION})`)
+);

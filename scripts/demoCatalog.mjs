@@ -197,6 +197,261 @@ export const demoTracksByAlbum = {
   ],
 };
 
+export const demoTopTracksByArtist = {
+  "demo-caroline-polachek": [
+    {
+      id: "demo-tt-welcome",
+      name: "Welcome To My Island",
+      duration_ms: 232000,
+      explicit: false,
+      album: {
+        id: "demo-desire",
+        name: "Desire, I Want To Turn Into You",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b2734e00f2959c6f8ae5aa7c9a9e",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-bunny",
+      name: "Bunny Is A Rider",
+      duration_ms: 196000,
+      explicit: false,
+      album: {
+        id: "demo-bunny",
+        name: "Bunny Is A Rider",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b2734e00f2959c6f8ae5aa7c9a9e",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-smoke",
+      name: "Smoke",
+      duration_ms: 177000,
+      explicit: false,
+      album: {
+        id: "demo-desire",
+        name: "Desire, I Want To Turn Into You",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b2734e00f2959c6f8ae5aa7c9a9e",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-door",
+      name: "Door",
+      duration_ms: 319000,
+      explicit: false,
+      album: {
+        id: "demo-pang",
+        name: "Pang",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b2734e00f2959c6f8ae5aa7c9a9e",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-sohot",
+      name: "So Hot You're Hurting My Feelings",
+      duration_ms: 183000,
+      explicit: false,
+      album: {
+        id: "demo-pang",
+        name: "Pang",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b2734e00f2959c6f8ae5aa7c9a9e",
+          },
+        ],
+      },
+    },
+  ],
+  "demo-carly-rae-jepsen": [
+    {
+      id: "demo-tt-runaway",
+      name: "Run Away With Me",
+      duration_ms: 251000,
+      explicit: false,
+      album: {
+        id: "demo-emotion",
+        name: "E•MO•TION",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273b14f39de36d1c0e5bbb89f31",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-emotion",
+      name: "E•MO•TION",
+      duration_ms: 197000,
+      explicit: false,
+      album: {
+        id: "demo-emotion",
+        name: "E•MO•TION",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273b14f39de36d1c0e5bbb89f31",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-surrender",
+      name: "Surrender My Heart",
+      duration_ms: 174000,
+      explicit: false,
+      album: {
+        id: "demo-loneliest",
+        name: "The Loneliest Time",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273b14f39de36d1c0e5bbb89f31",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-beach",
+      name: "Beach House",
+      duration_ms: 149000,
+      explicit: false,
+      album: {
+        id: "demo-loneliest",
+        name: "The Loneliest Time",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273b14f39de36d1c0e5bbb89f31",
+          },
+        ],
+      },
+    },
+  ],
+  "demo-cage-the-elephant": [
+    {
+      id: "demo-tt-spiderhead",
+      name: "Spiderhead",
+      duration_ms: 222000,
+      explicit: false,
+      album: {
+        id: "demo-melophobia",
+        name: "Melophobia",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273e7a8e7d1f9f3b8a1c9a3e4b2",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-cigarette",
+      name: "Cigarette Daydreams",
+      duration_ms: 208000,
+      explicit: false,
+      album: {
+        id: "demo-melophobia",
+        name: "Melophobia",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273e7a8e7d1f9f3b8a1c9a3e4b2",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-social-cues",
+      name: "Social Cues",
+      duration_ms: 219000,
+      explicit: false,
+      album: {
+        id: "demo-social-cues",
+        name: "Social Cues",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273e7a8e7d1f9f3b8a1c9a3e4b2",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-ready",
+      name: "Ready To Let Go",
+      duration_ms: 187000,
+      explicit: false,
+      album: {
+        id: "demo-social-cues",
+        name: "Social Cues",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273e7a8e7d1f9f3b8a1c9a3e4b2",
+          },
+        ],
+      },
+    },
+  ],
+  "demo-camila-cabello": [
+    {
+      id: "demo-tt-havana",
+      name: "Havana",
+      duration_ms: 217000,
+      explicit: false,
+      album: {
+        id: "demo-havana",
+        name: "Havana",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273f0b9a4ecdde8a1b9e9c3d8e5",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-never",
+      name: "Never Be the Same",
+      duration_ms: 226000,
+      explicit: false,
+      album: {
+        id: "demo-camila",
+        name: "Camila",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273f0b9a4ecdde8a1b9e9c3d8e5",
+          },
+        ],
+      },
+    },
+    {
+      id: "demo-tt-real",
+      name: "Real Friends",
+      duration_ms: 214000,
+      explicit: false,
+      album: {
+        id: "demo-camila",
+        name: "Camila",
+        images: [
+          {
+            url: "https://i.scdn.co/image/ab67616d0000b273f0b9a4ecdde8a1b9e9c3d8e5",
+          },
+        ],
+      },
+    },
+  ],
+};
+
+export function getDemoTopTracks(artistId) {
+  return demoTopTracksByArtist[artistId] ?? [];
+}
+
 export function searchDemoArtists(query) {
   const normalized = query.trim().toLowerCase();
 

@@ -86,13 +86,6 @@ async function getArtistPlaylists(
   }
 }
 
-async function getTopTracks(id: string) {
-  const res = await fetch(`${SERVER_URL}/api/artist/${id}/top-tracks`);
-  if (!res.ok) throw new Error("Failed to fetch top tracks");
-  const data = await res.json();
-  return data.tracks ?? [];
-}
-
 async function getAlbumTracks(id: string) {
   const res = await fetch(`${SERVER_URL}/api/album/${id}/tracks`);
   if (!res.ok) throw new Error("Failed to fetch tracks");
@@ -156,10 +149,10 @@ export default function App() {
   const [rawAlbums, setRawAlbums] = useState<any[]>([]); // full unfiltered set from server
   const [rawSingles, setRawSingles] = useState<any[]>([]); // full unfiltered set from server
   const [albumsRateLimited, setAlbumsRateLimited] = useState(false);
-  const [activeDiscTab, setActiveDiscTab] = useState<
-    "tracks" | "albums" | "singles"
-  >("tracks");
-  const [topTracks, setTopTracks] = useState<any[]>([]);
+  const [activeDiscTab, setActiveDiscTab] = useState<"albums" | "singles">(
+    "albums"
+  );
+
   const [playlists, setPlaylists] = useState<any[]>([]);
   const [selectedAlbum, setSelectedAlbum] = useState<any>(null);
   const [tracks, setTracks] = useState<any[]>([]);
@@ -245,12 +238,11 @@ export default function App() {
     setSingles([]);
     setRawAlbums([]);
     setRawSingles([]);
-    setTopTracks([]);
     setPlaylists([]);
     setSelectedAlbum(null);
     setTracks([]);
     setAlbumsRateLimited(false);
-    setActiveDiscTab("tracks");
+    setActiveDiscTab("albums");
     setError(null);
     setAlbumDebug(null);
   }
@@ -267,9 +259,8 @@ export default function App() {
     setSingles([]);
     setRawAlbums([]);
     setRawSingles([]);
-    setTopTracks([]);
     setAlbumsRateLimited(false);
-    setActiveDiscTab("tracks");
+    setActiveDiscTab("albums");
     setAlbumDebug(null);
     setArtistId(id);
     try {
@@ -278,8 +269,6 @@ export default function App() {
 
       // Sequence albums first, then playlists — avoids firing multiple
       // Spotify requests simultaneously and reduces rate-limit risk.
-      const topTracksData = await getTopTracks(id).catch(() => []);
-      setTopTracks(topTracksData);
 
       const albumResult = await getAlbums(id, albumFiltersRef.current).catch(
         () => null
@@ -334,7 +323,7 @@ export default function App() {
     setSelectedAlbum(null);
     setTracks([]);
     if (next.albumType === "single") setActiveDiscTab("singles");
-    else setActiveDiscTab("tracks");
+    else setActiveDiscTab("albums");
 
     if (!artistId) return;
 
@@ -907,16 +896,6 @@ export default function App() {
 
               {/* Tab bar */}
               <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => setActiveDiscTab("tracks")}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all ${
-                    activeDiscTab === "tracks"
-                      ? "bg-white text-black"
-                      : "bg-gray-700 text-gray-300 hover:bg-gray-600"
-                  }`}
-                >
-                  Top Tracks
-                </button>
                 {albumFilters.albumType !== "single" && (
                   <button
                     onClick={() => setActiveDiscTab("albums")}
@@ -942,15 +921,9 @@ export default function App() {
                   </button>
                 )}
                 <span className="ml-auto text-xs text-gray-400 self-center">
-                  {activeDiscTab === "tracks"
-                    ? topTracks.length
-                    : activeDiscTab === "albums"
-                    ? albums.length
-                    : singles.length}{" "}
+                  {activeDiscTab === "albums" ? albums.length : singles.length}{" "}
                   result
-                  {(activeDiscTab === "tracks"
-                    ? topTracks.length
-                    : activeDiscTab === "albums"
+                  {(activeDiscTab === "albums"
                     ? albums.length
                     : singles.length) !== 1
                     ? "s"
@@ -979,50 +952,6 @@ export default function App() {
                 </div>
               )}
 
-              {/* Top Tracks tab */}
-              {activeDiscTab === "tracks" && (
-                <div className="flex flex-col gap-1">
-                  {topTracks.length === 0 && (
-                    <p className="text-gray-400 text-sm py-2">
-                      No top tracks available right now.
-                    </p>
-                  )}
-                  {topTracks.slice(0, 10).map((track: any, i: number) => (
-                    <div
-                      key={track.id}
-                      className="flex items-center gap-4 p-2 rounded-xl hover:bg-gray-700 transition"
-                    >
-                      <span className="text-gray-500 text-sm w-5 shrink-0">
-                        {i + 1}
-                      </span>
-                      {track.album?.images?.[0]?.url && (
-                        <img
-                          src={track.album.images[0].url}
-                          alt={track.album.name}
-                          className="w-10 h-10 rounded shrink-0"
-                        />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate flex items-center gap-2">
-                          {track.name}
-                          {track.explicit && (
-                            <span className="shrink-0 text-xs bg-gray-600 text-gray-300 px-1 rounded">
-                              E
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-xs text-gray-400 truncate">
-                          {track.album?.name}
-                        </p>
-                      </div>
-                      <span className="text-sm text-gray-400 shrink-0">
-                        {formatDuration(track.duration_ms)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {/* Albums tab */}
               {activeDiscTab === "albums" && (
                 <div className="flex flex-col gap-1">
@@ -1034,7 +963,7 @@ export default function App() {
                     </p>
                   )}
                   {albums.map((album) => (
-                    <div key={album.id}>
+                    <div key={album.id} id={`album-${album.id}`}>
                       <button
                         onClick={() => handleSelectAlbum(album)}
                         className="flex items-center gap-4 w-full p-2 rounded-xl hover:bg-gray-700 active:scale-95 transition-all text-left"
@@ -1121,7 +1050,7 @@ export default function App() {
                     </p>
                   )}
                   {singles.map((album) => (
-                    <div key={album.id}>
+                    <div key={album.id} id={`album-${album.id}`}>
                       <button
                         onClick={() => handleSelectAlbum(album)}
                         className="flex items-center gap-4 w-full p-2 rounded-xl hover:bg-gray-700 active:scale-95 transition-all text-left"

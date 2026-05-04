@@ -8,6 +8,7 @@ import { readFileSync } from "fs";
 import {
   getDemoAlbums,
   getDemoArtist,
+  getDemoTopTracks,
   getDemoTracks,
   searchDemoArtists,
 } from "./scripts/demoCatalog.mjs";
@@ -359,6 +360,13 @@ const TOP_TRACKS_TTL = 10 * 60 * 1000; // 10 min
 
 app.get("/api/artist/:id/top-tracks", async (req, res) => {
   const id = req.params.id;
+
+  // Check demo catalog first
+  const demoTracks = getDemoTopTracks(id);
+  if (demoTracks.length > 0) {
+    return res.json({ tracks: demoTracks, mode: "demo" });
+  }
+
   const cached = topTracksCache.get(id);
   if (cached && Date.now() < cached.expiry) {
     console.log("[top-tracks] cache hit for", id);
@@ -366,9 +374,10 @@ app.get("/api/artist/:id/top-tracks", async (req, res) => {
   }
   try {
     const token = await fetchToken();
+    const headers = { Authorization: `Bearer ${token}` };
     const r = await fetch(
       `https://api.spotify.com/v1/artists/${id}/top-tracks?market=US`,
-      { headers: { Authorization: `Bearer ${token}` } }
+      { headers }
     );
     if (r.status === 429) {
       const retryAfter = r.headers.get("Retry-After") ?? "?";
@@ -376,7 +385,39 @@ app.get("/api/artist/:id/top-tracks", async (req, res) => {
       return res.status(429).json({ error: "Rate limited", tracks: [] });
     }
     const data = await r.json();
-    const tracks = data.tracks ?? [];
+    let tracks = data.tracks ?? [];
+
+    if (r.status === 403 || tracks.length === 0) {
+      console.warn(
+        "[top-tracks] forbidden or empty, falling back to album tracks"
+      );
+      try {
+        const albumsR = await fetch(
+          `https://api.spotify.com/v1/artists/${id}/albums?include_groups=album,single&market=US&limit=5`,
+          { headers }
+        );
+        const albumsData = await albumsR.json();
+        const firstAlbum = albumsData.items?.[0];
+        if (firstAlbum) {
+          const tracksR = await fetch(
+            `https://api.spotify.com/v1/albums/${firstAlbum.id}/tracks?market=US&limit=10`,
+            { headers }
+          );
+          const tracksData = await tracksR.json();
+          tracks = (tracksData.items ?? []).map((t) => ({
+            ...t,
+            album: {
+              id: firstAlbum.id,
+              name: firstAlbum.name,
+              images: firstAlbum.images,
+            },
+          }));
+        }
+      } catch (fallbackErr) {
+        console.warn("[top-tracks] fallback failed:", fallbackErr.message);
+      }
+    }
+
     topTracksCache.set(id, { tracks, expiry: Date.now() + TOP_TRACKS_TTL });
     console.log("[top-tracks]", tracks.length, "tracks for", id);
     res.json({ tracks });
